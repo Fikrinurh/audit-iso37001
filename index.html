@@ -861,7 +861,68 @@
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
+    // ===== SUPABASE CONFIG: isi Project URL dan Publishable Key =====
+    const SUPABASE_URL = "https://cedkvggfmdweskxbbjps.supabase.co/rest/v1/";
+    const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_myywFk3By6RZ1lYu-PRJnw_qDlCna-i";
+    let supabaseClient = null;
+    let cloudReady = false;
+    let realtimeChannel = null;
+
+    function initializeSupabase() {
+      if (!window.supabase || SUPABASE_URL.includes("PASTE_") || SUPABASE_PUBLISHABLE_KEY.includes("PASTE_")) {
+        console.warn("Supabase belum dikonfigurasi. Aplikasi berjalan lokal saja.");
+        return false;
+      }
+      supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+      return true;
+    }
+
+    async function loadCloudData(showErrors = true) {
+      if (!supabaseClient) return;
+      try {
+        const { data: rows, error } = await supabaseClient.from("findings").select("id,data,updated_at");
+        if (error) throw error;
+        findingsData = (rows || []).map(row => ({ ...row.data, id: row.id }));
+        const { data: settingsRow, error: settingsError } = await supabaseClient.from("document_settings").select("data").eq("id", 1).maybeSingle();
+        if (settingsError) throw settingsError;
+        if (settingsRow && settingsRow.data) headerSettings = { ...headerSettings, ...settingsRow.data };
+        cloudReady = true;
+        applyFilters();
+        updateDocumentMetadata();
+      } catch (err) {
+        console.error("Gagal memuat data Supabase:", err);
+        if (showErrors) showToast("Gagal memuat database. Periksa konfigurasi dan kebijakan RLS.");
+      }
+    }
+
+    async function syncFindingToCloud(finding) {
+      if (!supabaseClient || !cloudReady || !finding) return;
+      const { error } = await supabaseClient.from("findings").upsert({ id: String(finding.id), data: finding, updated_at: new Date().toISOString() });
+      if (error) { console.error(error); showToast("Gagal menyimpan ke database: periksa kebijakan RLS"); }
+    }
+
+    async function deleteFindingFromCloud(id) {
+      if (!supabaseClient || !cloudReady) return;
+      const { error } = await supabaseClient.from("findings").delete().eq("id", String(id));
+      if (error) { console.error(error); showToast("Gagal menghapus data di database"); }
+    }
+
+    async function syncHeaderToCloud() {
+      if (!supabaseClient || !cloudReady) return;
+      const { error } = await supabaseClient.from("document_settings").upsert({ id: 1, data: headerSettings, updated_at: new Date().toISOString() });
+      if (error) { console.error(error); showToast("Gagal menyimpan pengaturan dokumen"); }
+    }
+
+    function subscribeRealtime() {
+      if (!supabaseClient) return;
+      realtimeChannel = supabaseClient.channel("iso37001-live-sync")
+        .on("postgres_changes", { event: "*", schema: "public", table: "findings" }, () => loadCloudData(false))
+        .on("postgres_changes", { event: "*", schema: "public", table: "document_settings" }, () => loadCloudData(false))
+        .subscribe(status => console.log("Supabase realtime:", status));
+    }
+
     // Initial Dataset taken precisely from the provided "BBWS Ciliwung Cisade" PDF Document
     const DEFAULT_FINDINGS = [];
 
@@ -1138,6 +1199,7 @@
       };
       closeHeaderModal();
       updateDocumentMetadata();
+      syncHeaderToCloud();
       showToast('Header dokumen berhasil diperbarui');
     }
 
@@ -1592,6 +1654,8 @@
 
       closeModal();
       applyFilters();
+      const savedFinding = editId ? findingsData.find(f => f.id === editId) : findingsData[findingsData.length - 1];
+      syncFindingToCloud(savedFinding);
       showToast('Data berhasil disimpan');
     }
 
@@ -1601,13 +1665,18 @@
       if (!item) return;
 
       findingsData = findingsData.filter(f => f.id !== id);
+      deleteFindingFromCloud(id);
       // Re-index row numbers
       findingsData.forEach((f, idx) => f.no = idx + 1);
       showToast(`Temuan no. ${item.no} berhasil dihapus`);
       applyFilters();
     }
 
-    function resetDataToDefault() {
+    async function resetDataToDefault() {
+      if (supabaseClient && cloudReady) {
+        const { error } = await supabaseClient.from("findings").delete().neq("id", "__never_match__");
+        if (error) { console.error(error); showToast("Gagal mengosongkan database"); return; }
+      }
       findingsData = [];
       showToast('Semua data temuan berhasil dikosongkan');
       applyFilters();
@@ -1636,8 +1705,12 @@
         .replace(/'/g, '&#039;');
     }
 
-    window.addEventListener('DOMContentLoaded', () => {
+    window.addEventListener('DOMContentLoaded', async () => {
       renderTables();
+      if (initializeSupabase()) {
+        await loadCloudData();
+        subscribeRealtime();
+      }
     });
   </script>
 </body>

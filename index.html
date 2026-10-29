@@ -1166,10 +1166,13 @@
       document.getElementById('printTanggalDilaporkan').textContent = formatDisplayDate(reportedDates[0] || new Date().toISOString().slice(0,10));
       document.getElementById('printTanggalTindakLanjut').textContent = formatDisplayDate(followupDates[0] || '');
       document.getElementById('printTanggalVerifikasi').textContent = formatDisplayDate(verified[verified.length - 1] || '');
-      const auditorText = auditorSet.length ? auditorSet.map((n,i) => `${i+1}. ${n}`).join('\\n') : '-';
+      const auditorText = auditorSet.length
+  ? auditorSet.map((n, i) => `${i + 1}. ${n}`).join('\n')
+  : '-';
       document.getElementById('printNamaAuditor').textContent = auditorText;
       document.getElementById('printNamaVerifikator').textContent = auditorText;
-      document.getElementById('printNamaAuditi').textContent = auditiSet.length ? auditiSet.map(n => '• ' + n).join('\\n') : '-';
+     document.getElementById('printNamaAuditi').textContent =
+  auditiSet.length ? auditiSet.map(n => '• ' + n).join('\n') : '-';
       document.getElementById('dashboardDocRevision').textContent = `Terbit: ${formatDisplayDate(headerSettings.tglTerbit)} • Rev ${headerSettings.revisi}`;
       document.getElementById('dashboardAuditor').textContent = auditorSet.join(', ') || '-';
       document.getElementById('dashboardAuditi').textContent = auditiSet.join(', ') || '-';
